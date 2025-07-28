@@ -4,126 +4,136 @@
 # Source files: colonization/*
 
 
+from dataclasses import dataclass, field
 import datetime
 import json
+import threading
 from typing import Any, Self
 from os import path
 from companion import CAPIData, session, Session
+from config import config
+
+__json_config_name: str = "edmc_fleet_carrier_cargo_lib"
 
 
 class FleetCarrierCargo:
-    """
-    Class to manage the cargo state of a Fleet Carrier in Elite Dangerous.
+    _instance = None
+    _instance_lock = threading.Lock()
 
-    Responsible for storing, updating, and saving cargo information,
-    as well as synchronizing with the Companion API and game journal events.
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._init_once()
+        return cls._instance
 
-    Attributes:
-        cargo (dict): A dictionary with commodity names as keys and their quantities as values.
-        last_sync (str | None): Timestamp of the last synchronization with the Companion API.
-        storage_path (str): File path for saving and loading cargo state.
-    """
+    @classmethod
+    def is_initialized(cls) -> bool:
+        return cls._instance is not None
 
-    def __init__(self) -> None:
-        """
-        Initializes the cargo tracker.
+    def _init_once(self):
+        self._lock = threading.Lock()
+        self._cargo: dict[str, int] = {}
+        self._last_sync: str | None = None
+        self._call_sign: str | None = None
 
-        Args:
-            storage_path (str): Path to the JSON file for loading and saving state.
-        """
-        self.cargo: dict[str, int] = {}
-        self.last_sync: str | None = None
-        self.call_sign: str | None = None
-        self.file_path: str | None = None
-        self.auto_save: bool = False
+    def get_cargo(self):
+        """Returns a copy of the current cargo"""
+        with self._lock:
+            return dict(self._cargo)
 
-    def load_local(self, file_path: str, auto_save: bool = False) -> None:
-        """
-        Loads the cargo state from a JSON file at `storage_path`.
+    def set_cargo(self, cargo_dict: dict[str, int]):
+        """Sets current cargo in full."""
+        with self._lock:
+            self._cargo = dict(cargo_dict)
 
-        If the file does not exist, initializes with an empty cargo dictionary.
-        """
-        self.file_path = file_path
-        self.auto_save = auto_save
-        if path.isfile(file_path):
-            with open(file_path, "r", encoding="utf-8") as file:
-                data = json.load(file)
-            self.cargo = data.get("cargo", {})
-            self.last_sync = data.get("lastSync", None)
-            self.call_sign = data.get("callSign", None)
-
-    def save_local(self, file_path: str | None = None) -> None:
-        """
-        Saves the current cargo state to a JSON file at `storage_path`.
-
-        If no path is provided and auto-save is enabled, uses the stored path.
-        """
-        if file_path is None and self.auto_save:
-            file_path = self.file_path
-        if file_path is None:
-            return
-        with open(file_path, "w", encoding="utf-8") as file:
-            json.dump(
-                self,
-                file,
-                ensure_ascii=False,
-                indent=4,
-                cls=FleetCarrierCargoEncoder,
-                sort_keys=True,
-            )
-
-    def load_data_from_frontiers(self) -> Self | None:
-        if session.state != Session.STATE_OK:
-            return
-
-        carrier = session.requests_session.get(
-            session.capi_host_for_galaxy() + session.FRONTIER_CAPI_PATH_FLEETCARRIER
-        )
-        data: CAPIData = carrier.json()
-
-        self.call_sign = data["name"]["callsign"]
-        if not self.call_sign:
-            return None
-        self.last_sync = (
-            datetime.datetime.now(datetime.timezone.utc)
-            .replace(microsecond=0)
-            .isoformat()
-        )
-
-        self.cargo = {}
-        for c in data["cargo"]:
-            cn = c["commodity"].lower()
-            if cn in self.cargo:
-                self.cargo[cn] += c["qty"]
-            else:
-                self.cargo[cn] = c["qty"]
-        self.save_local()
-        return self
+    def add_commodity(self, commodity: str, qty: int):
+        with self._lock:
+            self._cargo[commodity] = self._cargo.get(commodity, 0) + qty
 
     def get_commodity(self, commodity: str) -> int:
-        return self.cargo.get(commodity, 0)
+        with self._lock:
+            return self._cargo.get(commodity, 0)
 
-    def add_commodity(self, commodity: str, qty: int) -> int:
-        if commodity in self.cargo:
-            self.cargo[commodity] += qty
-        else:
-            self.cargo[commodity] = qty
-        self.save_local()
-        return self.cargo[commodity]
+    def get_last_sync(self):
+        with self._lock:
+            return self._last_sync
 
-    def remove_commodity(self, commodity: str, qty: int) -> int:
-        if commodity in self.cargo:
-            self.cargo[commodity] -= qty
-            if self.cargo[commodity] < 0:
-                self.cargo[commodity] = 0
-        else:
-            self.cargo[commodity] = 0
-        self.save_local()
-        return self.cargo[commodity]
+    def set_last_sync(self, value: str):
+        with self._lock:
+            self._last_sync = value
+
+    def get_call_sign(self):
+        with self._lock:
+            return self._call_sign
+
+    def load(self):
+        with self._lock:
+            loaded_str = config.get_str(__json_config_name)
+            if not loaded_str:
+                return False
+            try:
+                data = json.loads(loaded_str)
+            except json.JSONDecodeError:
+                return False
+            self._cargo = data.get("cargo", {})
+            self._last_sync = data.get("lastSync", None)
+            self._call_sign = data.get("callSign", None)
+            return True
+
+    def save(self):
+        with self._lock:
+            data: dict[str, dict[str, int] | str | None] = {
+                "cargo": self._cargo,
+                "lastSync": self._last_sync,
+                "callSign": self._call_sign,
+            }
+            config.set(
+                __json_config_name,
+                json.dumps(data, ensure_ascii=False, indent=2, separators=(",", ":")),
+            )
+
+    def load_from_capi(self, data: CAPIData):
+        with self._lock:
+            self._call_sign = data["name"]["callsign"]
+            if not self._call_sign:
+                return None
+            self._last_sync = (
+                datetime.datetime.now(datetime.timezone.utc)
+                .replace(microsecond=0)
+                .isoformat()
+            )
+            self._cargo = {}
+            for c in data["cargo"]:
+                cn = c["commodity"].lower()
+                if cn in self._cargo:
+                    self._cargo[cn] += c["qty"]
+                else:
+                    self._cargo[cn] = c["qty"]
 
 
-class FleetCarrierCargoEncoder(json.JSONEncoder):
-    def default(self, o: Any) -> Any:
-        if isinstance(o, FleetCarrierCargo):
-            return o.__dict__
-        return super().default(o)
+class FleetCarrier:
+    def __init__(self):
+        is_first_load = not FleetCarrierCargo.is_initialized()
+        self.__carrier = FleetCarrierCargo()
+        if is_first_load:
+            if not self.access_cargo().load():
+                self.update_from_server()
+
+    def update_from_server(self):
+        if session.state != Session.STATE_OK:
+            return
+        response = session.requests_session.get(
+            session.capi_host_for_galaxy() + session.FRONTIER_CAPI_PATH_FLEETCARRIER
+        )
+        self.sync_to_capi(response.json())
+
+    def sync_to_capi(self, data: CAPIData):
+        self.__carrier.load_from_capi(data)
+        self.access_cargo().save()
+
+    def access_cargo(self) -> FleetCarrierCargo:
+        """Main method to access cargo. Use methods of the returned object to deal with.
+        Note, this object is shared accross all plugins in the current session."""
+        return self.__carrier
