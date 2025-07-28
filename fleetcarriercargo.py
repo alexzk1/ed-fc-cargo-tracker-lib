@@ -4,21 +4,19 @@
 # Source files: colonization/*
 
 
-from dataclasses import dataclass, field
 import datetime
 import json
 import threading
-from typing import Any, Self
-from os import path
 from companion import CAPIData, session, Session
 from config import config
-
-__json_config_name: str = "edmc_fleet_carrier_cargo_lib"
+from _logger import logger
+import time
 
 
 class FleetCarrierCargo:
     _instance = None
     _instance_lock = threading.Lock()
+    _json_config_name: str = "edmc_fleet_carrier_cargo_lib"
 
     def __new__(cls):
         if cls._instance is None:
@@ -37,6 +35,22 @@ class FleetCarrierCargo:
         self._cargo: dict[str, int] = {}
         self._last_sync: str | None = None
         self._call_sign: str | None = None
+
+    def is_sync_stale(self, max_age_seconds: int = 3600) -> bool:
+        """
+        Проверяет, устарела ли синхронизация.
+        :param max_age_seconds: Максимально допустимый возраст данных в секундах (по умолчанию 1 час).
+        :return: True, если время последней синхронизации старше max_age_seconds.
+        """
+        if not self._last_sync:
+            return True
+        try:
+            last_sync_dt = datetime.datetime.fromisoformat(self._last_sync)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            delta = now - last_sync_dt
+            return delta.total_seconds() > max_age_seconds
+        except Exception:
+            return True
 
     def get_cargo(self):
         """Returns a copy of the current cargo"""
@@ -69,20 +83,26 @@ class FleetCarrierCargo:
             return self._call_sign
 
     def load(self):
+        logger.debug("Trying to load cargo locally...")
         with self._lock:
-            loaded_str = config.get_str(__json_config_name)
+            logger.debug("Cargo is locked for loading...")
+            loaded_str = config.get_str(self._json_config_name)
             if not loaded_str:
+                logger.debug("Failed to load local data.")
                 return False
             try:
                 data = json.loads(loaded_str)
             except json.JSONDecodeError:
+                logger.debug("Failed to parse local json data.")
                 return False
             self._cargo = data.get("cargo", {})
             self._last_sync = data.get("lastSync", None)
             self._call_sign = data.get("callSign", None)
+            logger.debug("Cargo is loaded locally...")
             return True
 
     def save(self):
+        logger.debug("Saving carrier data...")
         with self._lock:
             data: dict[str, dict[str, int] | str | None] = {
                 "cargo": self._cargo,
@@ -90,20 +110,23 @@ class FleetCarrierCargo:
                 "callSign": self._call_sign,
             }
             config.set(
-                __json_config_name,
+                self._json_config_name,
                 json.dumps(data, ensure_ascii=False, indent=2, separators=(",", ":")),
             )
 
     def load_from_capi(self, data: CAPIData):
+        logger.debug("Parsing CAPI data...")
         with self._lock:
             self._call_sign = data["name"]["callsign"]
             if not self._call_sign:
-                return None
+                logger.warning("It was no callsign in CAPI response. Nothing parsed.")
+                return
             self._last_sync = (
                 datetime.datetime.now(datetime.timezone.utc)
                 .replace(microsecond=0)
                 .isoformat()
             )
+            logger.debug("Parsing CAPI cargo-data...")
             self._cargo = {}
             for c in data["cargo"]:
                 cn = c["commodity"].lower()
@@ -118,16 +141,52 @@ class FleetCarrier:
         is_first_load = not FleetCarrierCargo.is_initialized()
         self.__carrier = FleetCarrierCargo()
         if is_first_load:
-            if not self.access_cargo().load():
+            logger.debug("This is 1st copy of the object, loading things...")
+            if (
+                self.access_cargo().is_sync_stale(3600 * 12)
+                or not self.access_cargo().load()
+            ):
                 self.update_from_server()
+        else:
+            logger.debug(
+                "This is NOT 1st copy of the object, skipping loading of things..."
+            )
 
     def update_from_server(self):
-        if session.state != Session.STATE_OK:
-            return
-        response = session.requests_session.get(
-            session.capi_host_for_galaxy() + session.FRONTIER_CAPI_PATH_FLEETCARRIER
-        )
-        self.sync_to_capi(response.json())
+        def worker():
+            sleep_time: int = 30
+            attempts_count = 30
+
+            for attempt in range(attempts_count):
+                if not threading.main_thread().is_alive():
+                    logger.debug("Main thread is not alive, aborting update.")
+                    return
+
+                if session.state != Session.STATE_OK:
+                    logger.debug(
+                        f"[Attempt {attempt + 1}] Session state is not OK. Retrying in {sleep_time}s..."
+                    )
+                    time.sleep(sleep_time)
+                    continue
+
+                try:
+                    logger.debug(f"[Attempt {attempt + 1}] Querying remote FC data...")
+                    response = session.requests_session.get(
+                        session.capi_host_for_galaxy()
+                        + session.FRONTIER_CAPI_PATH_FLEETCARRIER
+                    )
+                    self.sync_to_capi(response.json())
+                    logger.debug("Remote data received and synced.")
+                    return
+                except Exception as e:
+                    logger.warning(f"[Attempt {attempt + 1}] Failed to fetch data: {e}")
+                    time.sleep(sleep_time)
+
+            logger.error(
+                f"All {attempts_count} attempts to update fleet carrier data from server failed."
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def sync_to_capi(self, data: CAPIData):
         self.__carrier.load_from_capi(data)
@@ -136,4 +195,5 @@ class FleetCarrier:
     def access_cargo(self) -> FleetCarrierCargo:
         """Main method to access cargo. Use methods of the returned object to deal with.
         Note, this object is shared accross all plugins in the current session."""
+        logger.debug("Accessing cargo on carrier...")
         return self.__carrier
