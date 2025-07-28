@@ -12,7 +12,25 @@ from companion import CAPIData, session, Session
 
 
 class FleetCarrierCargo:
+    """
+    Class to manage the cargo state of a Fleet Carrier in Elite Dangerous.
+
+    Responsible for storing, updating, and saving cargo information,
+    as well as synchronizing with the Companion API and game journal events.
+
+    Attributes:
+        cargo (dict): A dictionary with commodity names as keys and their quantities as values.
+        last_sync (str | None): Timestamp of the last synchronization with the Companion API.
+        storage_path (str): File path for saving and loading cargo state.
+    """
+
     def __init__(self) -> None:
+        """
+        Initializes the cargo tracker.
+
+        Args:
+            storage_path (str): Path to the JSON file for loading and saving state.
+        """
         self.cargo: dict[str, int] = {}
         self.last_sync: str | None = None
         self.call_sign: str | None = None
@@ -20,6 +38,11 @@ class FleetCarrierCargo:
         self.auto_save: bool = False
 
     def load_local(self, file_path: str, auto_save: bool = False) -> None:
+        """
+        Loads the cargo state from a JSON file at `storage_path`.
+
+        If the file does not exist, initializes with an empty cargo dictionary.
+        """
         self.file_path = file_path
         self.auto_save = auto_save
         if path.isfile(file_path):
@@ -30,6 +53,11 @@ class FleetCarrierCargo:
             self.call_sign = data.get("callSign", None)
 
     def save_local(self, file_path: str | None = None) -> None:
+        """
+        Saves the current cargo state to a JSON file at `storage_path`.
+
+        If no path is provided and auto-save is enabled, uses the stored path.
+        """
         if file_path is None and self.auto_save:
             file_path = self.file_path
         if file_path is None:
