@@ -42,15 +42,16 @@ class FleetCarrierCargo:
         :param max_age_seconds: Максимально допустимый возраст данных в секундах (по умолчанию 1 час).
         :return: True, если время последней синхронизации старше max_age_seconds.
         """
-        if not self._last_sync:
-            return True
-        try:
-            last_sync_dt = datetime.datetime.fromisoformat(self._last_sync)
-            now = datetime.datetime.now(datetime.timezone.utc)
-            delta = now - last_sync_dt
-            return delta.total_seconds() > max_age_seconds
-        except Exception:
-            return True
+        with self._lock:
+            if not self._last_sync:
+                return True
+            try:
+                last_sync_dt = datetime.datetime.fromisoformat(self._last_sync)
+                now = datetime.datetime.now(datetime.timezone.utc)
+                delta = now - last_sync_dt
+                return delta.total_seconds() > max_age_seconds
+            except Exception:
+                return True
 
     def get_cargo(self):
         """Returns a copy of the current cargo"""
