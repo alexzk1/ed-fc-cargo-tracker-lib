@@ -142,9 +142,8 @@ class FleetCarrier:
         self.__carrier = FleetCarrierCargo()
         if is_first_load:
             logger.debug("This is 1st copy of the object, loading things...")
-            if (
-                self.access_cargo().is_sync_stale(3600 * 12)
-                or not self.access_cargo().load()
+            if not self.access_cargo().load() or self.access_cargo().is_sync_stale(
+                3600 * 12
             ):
                 self.update_from_server()
         else:
@@ -154,6 +153,7 @@ class FleetCarrier:
 
     def update_from_server(self):
         def worker():
+            logger.debug("Accessing server thread started...")
             sleep_time: int = 30
             attempts_count = 30
 
@@ -186,6 +186,7 @@ class FleetCarrier:
                 f"All {attempts_count} attempts to update fleet carrier data from server failed."
             )
 
+        logger.debug("Loading data from server...")
         threading.Thread(target=worker, daemon=True).start()
 
     def sync_to_capi(self, data: CAPIData):
