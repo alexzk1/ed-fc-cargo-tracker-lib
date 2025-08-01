@@ -42,3 +42,15 @@ fleetcarriercargo.FleetCarrierCargo.add_on_cargo_change_handler(on_cargo_change)
 
 
 ```
+
+To enable access to this plugin, add in your `load.py`
+
+```
+import sys
+import os
+
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", "ed-fc-cargo-tracker-lib")
+)
+
+```
