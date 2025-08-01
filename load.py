@@ -1,4 +1,5 @@
 import sys
+from tkinter import Tk
 
 from companion import CAPIData
 import fleetcarriercargo
@@ -49,6 +50,8 @@ def journal_entry(
 
 
 def plugin_app(parent: Any):
+    fleetcarriercargo.FleetCarrierCargo.set_gui_root_once(parent.winfo_toplevel())
+
     # this.ui = MainUi()
     # this.plugin.setup_ui(this.ui)
     # ui = this.ui.plugin_app(parent)

@@ -7,12 +7,15 @@
 import datetime
 import json
 import threading
+from tkinter import Tk
 from companion import CAPIData, session, Session
 from config import config
 from _logger import logger
 import time
 
 from typing import Protocol
+
+from load import plugin_app
 
 
 class InventoryCallback(Protocol):
@@ -27,6 +30,15 @@ class InventoryCallback(Protocol):
     def __call__(self, call_sign: str | None, cargo: dict[str, int]) -> bool: ...
 
 
+class SignalCargoWasChanged(Protocol):
+    """
+    A signal that is triggered when the cargo has changed, and is guaranteed to be called in the GUI (main) thread context.
+    Implementations should avoid long-running operations; use this for lightweight tasks such as refreshing the UI.
+    """
+
+    def __call__(self) -> None: ...
+
+
 class FleetCarrierCargo:
     """
     Data about carrier's cargo.
@@ -39,10 +51,13 @@ class FleetCarrierCargo:
     _instance_lock = threading.Lock()
     _updates_lock = threading.Lock()
     _cargo_lock = threading.Lock()
+    _signals_lock = threading.Lock()
 
     _cargo: dict[str, int] = {}
     _last_sync: str | None = None
     _call_sign: str | None = None
+    _handlers: list[SignalCargoWasChanged] = []
+    _gui_root: Tk | None = None
 
     @staticmethod
     def is_sync_stale(max_age_seconds: int = 3600) -> bool:
@@ -66,6 +81,43 @@ class FleetCarrierCargo:
             return True
 
     @staticmethod
+    def add_on_cargo_change_handler(handler: SignalCargoWasChanged):
+        """
+        Installs your handler of the "cargo changed" event.
+        Note, you cannot un-install it.
+        """
+        with FleetCarrierCargo._signals_lock:
+            FleetCarrierCargo._handlers.append(handler)
+
+    @staticmethod
+    def set_gui_root_once(root: Tk):
+        """
+        Internal method.
+        Do not use it directly.
+        """
+        with FleetCarrierCargo._signals_lock:
+            if FleetCarrierCargo._gui_root is None:
+                FleetCarrierCargo._gui_root = root
+            elif FleetCarrierCargo._gui_root != root:
+                raise RuntimeError("Attempt to overwrite GUI root")
+
+    @staticmethod
+    def _signal_cargo_was_changed():
+        """
+        Internal method, used to call all handlers out of main-gui thread.
+        """
+        with FleetCarrierCargo._signals_lock:
+            if FleetCarrierCargo._gui_root:
+                logger.debug("Calling on_cargo_changed handlers.")
+                for handler in FleetCarrierCargo._handlers:
+                    try:
+                        FleetCarrierCargo._gui_root.after(0, handler)
+                    except Exception as e:
+                        logger.error(f"Handler raised exception: {e}", exc_info=True)
+            else:
+                logger.warning("Called _signal_cargo_was_changed() without GUI root.")
+
+    @staticmethod
     def inventory(callback: InventoryCallback) -> None:
         """
         Provides synchronized access to the current cargo inventory.
@@ -78,13 +130,17 @@ class FleetCarrierCargo:
         """
         with FleetCarrierCargo._cargo_lock:
             logger.debug("Accessing inventory")
+            old_hash = hash(frozenset(FleetCarrierCargo._cargo.items()))
             res = callback(FleetCarrierCargo._call_sign, FleetCarrierCargo._cargo)
             FleetCarrierCargo._cargo = {
                 k: v for k, v in FleetCarrierCargo._cargo.items() if v > 0
             }
+            new_hash = hash(frozenset(FleetCarrierCargo._cargo.items()))
             if res:
                 FleetCarrierCargo._update_access_time_not_locked()
                 FleetCarrierCargo._save_not_locked()
+            if old_hash != new_hash:
+                FleetCarrierCargo._signal_cargo_was_changed()
 
     @staticmethod
     def load():
@@ -107,6 +163,7 @@ class FleetCarrierCargo:
             FleetCarrierCargo._last_sync = data.get("lastSync", None)
             FleetCarrierCargo._call_sign = data.get("callSign", None)
             logger.debug("Cargo is loaded locally...")
+            FleetCarrierCargo._signal_cargo_was_changed()
         return True
 
     @staticmethod
@@ -172,6 +229,7 @@ class FleetCarrierCargo:
                     FleetCarrierCargo._cargo[cn] = c["qty"]
             FleetCarrierCargo._update_access_time_not_locked()
             FleetCarrierCargo._save_not_locked()
+        FleetCarrierCargo._signal_cargo_was_changed()
 
     @staticmethod
     def is_updating_from_server():

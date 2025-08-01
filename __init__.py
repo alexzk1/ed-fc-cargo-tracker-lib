@@ -1,6 +1,11 @@
-from .fleetcarriercargo import FleetCarrierCargo, InventoryCallback
+from .fleetcarriercargo import (
+    FleetCarrierCargo,
+    InventoryCallback,
+    SignalCargoWasChanged,
+)
 
 __all__ = [
     "FleetCarrierCargo",
     "InventoryCallback",
+    "SignalCargoWasChanged",
 ]

@@ -19,3 +19,26 @@ def report_all(call_sign: str | None, cargo: dict[str, int]):
 
 fleetcarriercargo.FleetCarrierCargo.inventory(report_all)
 ```
+
+Another example, which subscribes to "on cargo changed":
+
+```
+import fleetcarriercargo
+
+def process_cargo(cargo: dict[str, int]):
+    # Do something with the cargo dictionary
+    pass
+
+def on_cargo_change():
+    # Called when the cargo has changed
+    print("Cargo changed!")
+    # Request the current inventory and process it
+    fleetcarriercargo.FleetCarrierCargo.inventory(
+        lambda call_sign, cargo: process_cargo(cargo)
+    )
+
+# Register your handler to react when cargo changes
+fleetcarriercargo.FleetCarrierCargo.add_on_cargo_change_handler(on_cargo_change)
+
+
+```
