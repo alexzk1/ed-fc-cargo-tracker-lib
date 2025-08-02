@@ -76,7 +76,7 @@ class CargoKey:
     def __repr__(self):
         return f"CargoKey({self._fields!r})"
 
-    def __str__(self):
+    def to_string(self) -> str:
         return json.dumps(self._fields, sort_keys=True, separators=(",", ":"))
 
 
@@ -86,12 +86,13 @@ class CargoTally(dict[CargoKey, int]):
     """
 
     def to_json_dict(self) -> dict[str, int]:
-        return {str(key): value for key, value in self.items()}
+        return {key.to_string(): value for key, value in self.items()}
 
     @classmethod
     def from_json_dict(cls, d: dict[str, int]) -> "CargoTally":
         data = cls()
         for k, v in d.items():
+            logger.debug(f"Decoding: {k}")
             key_dict = json.loads(k)
             data[CargoKey(key_dict)] = v
         return data
@@ -219,8 +220,22 @@ class FleetCarrierCargo:
             logger.debug("Accessing inventory")
             old_hash = hash(frozenset(FleetCarrierCargo._cargo.items()))
             res = callback(FleetCarrierCargo._call_sign, FleetCarrierCargo._cargo)
+            invalid_keys = [
+                k
+                for k in FleetCarrierCargo._cargo
+                if not isinstance(k, CargoKey)  # pyright: ignore[reportUnnecessaryIsInstance]
+            ]
+            if invalid_keys:
+                logger.warning(
+                    "FleetCarrierCargo: removed invalid keys: %s",
+                    ", ".join(repr(k) for k in invalid_keys),
+                )
             FleetCarrierCargo._cargo = CargoTally(
-                {k: v for k, v in FleetCarrierCargo._cargo.items() if v > 0}
+                {
+                    k: v
+                    for k, v in FleetCarrierCargo._cargo.items()
+                    if isinstance(k, CargoKey) and v > 0  # pyright: ignore[reportUnnecessaryIsInstance]
+                }
             )
             new_hash = hash(frozenset(FleetCarrierCargo._cargo.items()))
             if res:
