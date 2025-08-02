@@ -50,10 +50,6 @@ def journal_entry(
 
 
 def plugin_app(parent: Any):
-    if (
-        not fleetcarriercargo.FleetCarrierCargo.load()
-        or fleetcarriercargo.FleetCarrierCargo.is_sync_stale(12 * 3600)
-    ):
-        fleetcarriercargo.FleetCarrierCargo.update_from_server()
     fleetcarriercargo.FleetCarrierCargo.set_gui_root_once(parent.winfo_toplevel())
+    fleetcarriercargo.FleetCarrierCargo.load_or_update()
     return None

@@ -318,3 +318,11 @@ class FleetCarrierCargo:
 
         logger.debug("Loading data from server...")
         threading.Thread(target=updater, daemon=True).start()
+
+    @staticmethod
+    def load_or_update():
+        """
+        Tries to load data, if failed or it was outdated than query server.
+        """
+        if not FleetCarrierCargo.load() or FleetCarrierCargo.is_sync_stale(12 * 3600):
+            FleetCarrierCargo.update_from_server()
