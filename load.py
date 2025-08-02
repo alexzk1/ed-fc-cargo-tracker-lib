@@ -3,6 +3,7 @@ from tkinter import Tk
 
 from companion import CAPIData
 import fleetcarriercargo
+import cargo_names
 from _logger import logger
 from _logger import plugin_name
 from typing import Any
@@ -50,6 +51,7 @@ def journal_entry(
 
 
 def plugin_app(parent: Any):
+    cargo_names.MarketCatalogue.load_commodity_map()
     fleetcarriercargo.FleetCarrierCargo.set_gui_root_once(parent.winfo_toplevel())
     fleetcarriercargo.FleetCarrierCargo.load_or_update()
     return None

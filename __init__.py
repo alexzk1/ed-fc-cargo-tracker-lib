@@ -6,10 +6,14 @@ from .fleetcarriercargo import (
     CargoTally,
 )
 
+from .cargo_names import MarketName, MarketCatalogue
+
 __all__ = [
     "FleetCarrierCargo",
     "InventoryCallback",
     "SignalCargoWasChanged",
     "CargoKey",
     "CargoTally",
+    "MarketCatalogue",
+    "MarketName",
 ]

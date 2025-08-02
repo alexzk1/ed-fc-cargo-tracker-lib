@@ -14,6 +14,7 @@ from config import config
 from _logger import logger
 import time
 from typing import Any, Protocol
+from cargo_names import MarketCatalogue, MarketName
 
 
 class CargoKey:
@@ -51,6 +52,12 @@ class CargoKey:
     @property
     def is_stolen(self) -> bool:
         return self._fields["stolen"]
+
+    def market_name(self):
+        what = self.commodity
+        return (
+            MarketCatalogue.explain_commodity(what) or MarketName("", what, 0)
+        ).trade_name
 
     def __eq__(self, other: Any):
         if not isinstance(other, CargoKey):
