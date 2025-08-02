@@ -47,6 +47,9 @@ class CargoKey:
 
     @property
     def commodity(self):
+        """
+        This "symbol" ("commodity") name, used by the game to name some commodity.
+        """
         return self._fields["commodity"]
 
     @property
@@ -54,6 +57,9 @@ class CargoKey:
         return self._fields["stolen"]
 
     def market_name(self):
+        """
+        Returns name situable to show in GUI to user.
+        """
         what = self.commodity
         return (
             MarketCatalogue.explain_commodity(what) or MarketName("", what, 0)
