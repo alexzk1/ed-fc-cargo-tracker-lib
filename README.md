@@ -24,7 +24,7 @@ Note, keys are lower-cased and correspond "commodity" field in CAPI response lik
 ## Example usage:
 
 ```
-def report_all(call_sign: str | None, cargo: dict[str, int]):
+def report_all(call_sign: str | None, cargo: CargoTally):
     print(f"Cargo status for carrier {call_sign or 'unknown'}:")
     for name, count in cargo.items():
         print(f" - {name}: {count}")
@@ -38,7 +38,7 @@ Another example, which subscribes to "on cargo changed":
 ```
 import fleetcarriercargo
 
-def process_cargo(cargo: dict[str, int]):
+def process_cargo(cargo: CargoTally):
     # Do something with the cargo dictionary
     pass
 

@@ -228,7 +228,7 @@ class CargoMonitor:
         if not CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer:
             return
 
-        def process_buy(call_sign: str | None, cargo: dict[str, int]):
+        def process_buy(call_sign: str | None, cargo: fleetcarriercargo.CargoTally):
             nonlocal ctx
             key = ctx.entry["Type"].lower()
             item = cargo.get(key, 0) - ctx.entry["Count"]
@@ -242,7 +242,7 @@ class CargoMonitor:
         if not CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer:
             return
 
-        def process_sell(call_sign: str | None, cargo: dict[str, int]):
+        def process_sell(call_sign: str | None, cargo: fleetcarriercargo.CargoTally):
             nonlocal ctx
             key = ctx.entry["Type"].lower()
             item = cargo.get(key, 0) + ctx.entry["Count"]
@@ -260,7 +260,9 @@ class CargoMonitor:
             CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer = True
             CargoMonitor._last_known_cmdr_state.save()
 
-        def process_transfers(call_sign: str | None, cargo: dict[str, int]):
+        def process_transfers(
+            call_sign: str | None, cargo: fleetcarriercargo.CargoTally
+        ):
             nonlocal ctx
             for t in ctx.entry["Transfers"]:
                 key = t["Type"].lower()

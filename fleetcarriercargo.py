@@ -4,6 +4,7 @@
 # Source files: colonization/*
 
 
+import copy
 import datetime
 import json
 import threading
@@ -12,10 +13,83 @@ from companion import CAPIData, session, Session
 from config import config
 from _logger import logger
 import time
+from typing import Any, Protocol
 
-from typing import Protocol
 
-from load import plugin_app
+class CargoKey:
+    """
+    This is information about cargo (at least the name of it).
+    """
+
+    def __init__(self, source: str | dict[str, Any]):
+        if isinstance(source, str):
+            self._fields: dict[str, Any] = {
+                "commodity": source.lower(),
+                "stolen": False,
+                "mission": False,
+                "originSystem": None,
+                "qty": None,
+                "value": None,
+                "locName": None,
+            }
+        else:
+            self._fields: dict[str, Any] = copy.deepcopy(source)
+            self._fields["commodity"] = self._fields["commodity"].lower()
+            self._fields["qty"] = None
+            self._fields["value"] = None
+            self._fields["locName"] = None
+
+            # TODO: deal with those fields later, as it requires changes in CargoMonitor too:
+            self._fields["stolen"] = False
+            self._fields["mission"] = False
+            self._fields["originSystem"] = None
+
+    @property
+    def commodity(self):
+        return self._fields["commodity"]
+
+    @property
+    def is_stolen(self) -> bool:
+        return self._fields["stolen"]
+
+    def __eq__(self, other: Any):
+        if not isinstance(other, CargoKey):
+            return NotImplemented
+        return self._fields == other._fields
+
+    def __hash__(self):
+        return hash(tuple(sorted(self._fields.items())))
+
+    def __repr__(self):
+        return f"CargoKey({self._fields!r})"
+
+    def __str__(self):
+        return json.dumps(self._fields, sort_keys=True, separators=(",", ":"))
+
+
+class CargoTally(dict[CargoKey, int]):
+    """
+    Contains cargo information as key, and quantity as value.
+    """
+
+    def to_json_dict(self) -> dict[str, int]:
+        return {str(key): value for key, value in self.items()}
+
+    @classmethod
+    def from_json_dict(cls, d: dict[str, int]) -> "CargoTally":
+        data = cls()
+        for k, v in d.items():
+            key_dict = json.loads(k)
+            data[CargoKey(key_dict)] = v
+        return data
+
+    def to_json(self, **kwargs: Any) -> str:
+        return json.dumps(self.to_json_dict(), **kwargs)
+
+    @classmethod
+    def from_json(cls, s: str) -> "CargoTally":
+        d = json.loads(s)
+        return cls.from_json_dict(d)
 
 
 class InventoryCallback(Protocol):
@@ -27,7 +101,7 @@ class InventoryCallback(Protocol):
     Note, external plugins should always return False, probably.
     """
 
-    def __call__(self, call_sign: str | None, cargo: dict[str, int]) -> bool: ...
+    def __call__(self, call_sign: str | None, cargo: CargoTally) -> bool: ...
 
 
 class SignalCargoWasChanged(Protocol):
@@ -53,7 +127,7 @@ class FleetCarrierCargo:
     _cargo_lock = threading.Lock()
     _signals_lock = threading.Lock()
 
-    _cargo: dict[str, int] = {}
+    _cargo: CargoTally = CargoTally()
     _last_sync: str | None = None
     _call_sign: str | None = None
     _handlers: list[SignalCargoWasChanged] = []
@@ -132,9 +206,9 @@ class FleetCarrierCargo:
             logger.debug("Accessing inventory")
             old_hash = hash(frozenset(FleetCarrierCargo._cargo.items()))
             res = callback(FleetCarrierCargo._call_sign, FleetCarrierCargo._cargo)
-            FleetCarrierCargo._cargo = {
-                k: v for k, v in FleetCarrierCargo._cargo.items() if v > 0
-            }
+            FleetCarrierCargo._cargo = CargoTally(
+                {k: v for k, v in FleetCarrierCargo._cargo.items() if v > 0}
+            )
             new_hash = hash(frozenset(FleetCarrierCargo._cargo.items()))
             if res:
                 FleetCarrierCargo._update_access_time_not_locked()
@@ -159,7 +233,7 @@ class FleetCarrierCargo:
             return False
         with FleetCarrierCargo._cargo_lock:
             logger.debug("Cargo is locked for loading...")
-            FleetCarrierCargo._cargo = data.get("cargo", {})
+            FleetCarrierCargo._cargo = CargoTally.from_json_dict(data.get("cargo", {}))
             FleetCarrierCargo._last_sync = data.get("lastSync", None)
             FleetCarrierCargo._call_sign = data.get("callSign", None)
             logger.debug("Cargo is loaded locally...")
@@ -183,7 +257,7 @@ class FleetCarrierCargo:
         """
         logger.debug("Saving carrier data...")
         data: dict[str, dict[str, int] | str | None] = {
-            "cargo": FleetCarrierCargo._cargo,
+            "cargo": FleetCarrierCargo._cargo.to_json_dict(),
             "lastSync": FleetCarrierCargo._last_sync,
             "callSign": FleetCarrierCargo._call_sign,
         }
@@ -231,13 +305,13 @@ class FleetCarrierCargo:
                 logger.warning("It was no callsign in CAPI response. Nothing parsed.")
                 return
             logger.debug("Parsing CAPI cargo-data...")
-            FleetCarrierCargo._cargo = {}
-            for c in data["cargo"]:
-                cn = c["commodity"].lower()
-                if cn in FleetCarrierCargo._cargo:
-                    FleetCarrierCargo._cargo[cn] += c["qty"]
+            FleetCarrierCargo._cargo = CargoTally()
+            for item in data["cargo"]:
+                key = CargoKey(item)
+                if key in FleetCarrierCargo._cargo:
+                    FleetCarrierCargo._cargo[key] += item["qty"]
                 else:
-                    FleetCarrierCargo._cargo[cn] = c["qty"]
+                    FleetCarrierCargo._cargo[key] = item["qty"]
             FleetCarrierCargo._update_access_time_not_locked()
             FleetCarrierCargo._save_not_locked()
         FleetCarrierCargo._signal_cargo_was_changed()
