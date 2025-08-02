@@ -230,8 +230,9 @@ class CargoMonitor:
 
         def process_buy(call_sign: str | None, cargo: dict[str, int]):
             nonlocal ctx
-            item = cargo.get(ctx.entry["Type"], 0) - ctx.entry["Count"]
-            cargo[ctx.entry["Type"]] = item
+            key = ctx.entry["Type"].lower()
+            item = cargo.get(key, 0) - ctx.entry["Count"]
+            cargo[key] = item
             return True
 
         fleetcarriercargo.FleetCarrierCargo.inventory(process_buy)
@@ -243,8 +244,9 @@ class CargoMonitor:
 
         def process_sell(call_sign: str | None, cargo: dict[str, int]):
             nonlocal ctx
-            item = cargo.get(ctx.entry["Type"], 0) + ctx.entry["Count"]
-            cargo[ctx.entry["Type"]] = item
+            key = ctx.entry["Type"].lower()
+            item = cargo.get(key, 0) + ctx.entry["Count"]
+            cargo[key] = item
             return True
 
         fleetcarriercargo.FleetCarrierCargo.inventory(process_sell)
@@ -261,12 +263,13 @@ class CargoMonitor:
         def process_transfers(call_sign: str | None, cargo: dict[str, int]):
             nonlocal ctx
             for t in ctx.entry["Transfers"]:
-                item = cargo.get(t["Type"], 0)
+                key = t["Type"].lower()
+                item = cargo.get(key, 0)
                 if t["Direction"] == "toship":
                     item -= t["Count"]
                 if t["Direction"] == "tocarrier":
                     item += t["Count"]
-                cargo[t["Type"]] = item
+                cargo[key] = item
             return True
 
         fleetcarriercargo.FleetCarrierCargo.inventory(process_transfers)

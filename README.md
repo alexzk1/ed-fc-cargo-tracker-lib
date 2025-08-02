@@ -8,6 +8,19 @@ Useful for coordination, automation, or any plugin that needs consistent access 
 
 Designed as a shared cargo state tracker for fleet carriers in Elite Dangerous, enabling other EDMC plugins to synchronize, monitor, or modify inventory data safely and efficiently.
 
+Note, keys are lower-cased and correspond "commodity" field in CAPI response like this:
+```
+ {
+            "commodity": "Tritium",
+            "originSystem": null,
+            "mission": false,
+            "qty": 106,
+            "value": 5629978,
+            "stolen": false,
+            "locName": "Tritium"
+},
+```
+
 ## Example usage:
 
 ```
