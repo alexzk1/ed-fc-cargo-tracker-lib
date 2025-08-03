@@ -11,6 +11,16 @@ class MarketName:
     id: int
 
 
+class MarketNameWithCommodity(tuple[MarketName, str]):
+    @property
+    def market(self) -> MarketName:
+        return self[0]
+
+    @property
+    def commodity(self) -> str:
+        return self[1]
+
+
 class MarketCatalogue:
     """
     This class can translate "key-name" from commodity/cargo response in CAPI into human readable names.
@@ -51,4 +61,11 @@ class MarketCatalogue:
         commodity = commodity.lower()
         if commodity in MarketCatalogue._SYMBOL_TO_MARKET_NAMES:
             return MarketCatalogue._SYMBOL_TO_MARKET_NAMES[commodity]
+        return None
+
+    @staticmethod
+    def explain_commodity_id(id: int) -> Optional[MarketNameWithCommodity]:
+        for commodity, market in MarketCatalogue._SYMBOL_TO_MARKET_NAMES.items():
+            if market.id == id:
+                return MarketNameWithCommodity((market, commodity))
         return None

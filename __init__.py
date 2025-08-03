@@ -6,7 +6,7 @@ from .fleetcarriercargo import (
     CargoTally,
 )
 
-from .cargo_names import MarketName, MarketCatalogue
+from .cargo_names import MarketName, MarketCatalogue, MarketNameWithCommodity
 
 __all__ = [
     "FleetCarrierCargo",
@@ -16,4 +16,5 @@ __all__ = [
     "CargoTally",
     "MarketCatalogue",
     "MarketName",
+    "MarketNameWithCommodity",
 ]
