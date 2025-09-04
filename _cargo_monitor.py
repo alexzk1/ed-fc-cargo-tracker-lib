@@ -45,13 +45,13 @@ class _JournalContext:
         return own
 
 
-class JournalHandler(Protocol):
+class _JournalHandler(Protocol):
     """Callable to process JournalContext."""
 
     def __call__(self, ctx: _JournalContext) -> None: ...
 
 
-class PersistentCmdrState:
+class _PersistentCmdrState:
     _cmdr_state_save_key: str = "edmc_fleet_carrier_cargo_lib_cmdr_state"
 
     def __init__(self):
@@ -85,12 +85,17 @@ class PersistentCmdrState:
 
 
 class CargoMonitor:
+    """
+    Class which handles cargo transfers between personal carrier, ship, station markets.
+    Main purpose is to have final commodity amount on personal carrier.
+    """
+
     _data_lock = threading.Lock()
     _updates_lock = threading.Lock()
 
     _last_known_cmdr: str = ""
     _delayed_update_data: list[_JournalContext] = []
-    _last_known_cmdr_state: PersistentCmdrState = PersistentCmdrState()
+    _last_known_cmdr_state: _PersistentCmdrState = _PersistentCmdrState()
 
     @staticmethod
     def _apply_all_delayed_updates():
@@ -279,7 +284,7 @@ class CargoMonitor:
 
         fleetcarriercargo.FleetCarrierCargo.inventory(process_transfers)
 
-    EVENT_HANDLERS: ClassVar[dict[str, JournalHandler]]
+    EVENT_HANDLERS: ClassVar[dict[str, _JournalHandler]]
 
 
 CargoMonitor.EVENT_HANDLERS = {
