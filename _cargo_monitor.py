@@ -90,8 +90,8 @@ class CargoMonitor:
     Main purpose is to have final commodity amount on personal carrier.
     """
 
-    _data_lock = threading.Lock()
-    _updates_lock = threading.Lock()
+    _data_lock = threading.Lock()  # Lock to access data
+    _updates_lock = threading.Lock()  # Lock to check if thread is going already
 
     _last_known_cmdr: str = ""
     _delayed_update_data: list[_JournalContext] = []
@@ -132,13 +132,13 @@ class CargoMonitor:
             if not CargoMonitor._updates_lock.acquire(blocking=False):
                 return
             try:
-                sleep_time: int = 5
                 while threading.main_thread().is_alive():
                     if not fleetcarriercargo.FleetCarrierCargo.is_updating_from_server():
                         CargoMonitor._apply_all_delayed_updates()
                     else:
                         logger.debug("Awaiting CAPI to finish...")
-                    time.sleep(sleep_time)
+                        time.sleep(5)
+                    time.sleep(2)
             finally:
                 CargoMonitor._updates_lock.release()
 
