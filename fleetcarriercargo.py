@@ -298,7 +298,7 @@ class FleetCarrierCargo:
     def _update_access_time_not_locked():
         """
         Do not use directly from outside.
-        Updates last modified tume-stamp to now().
+        Updates last modified time stamp to now().
         """
         FleetCarrierCargo._last_sync = (
             datetime.datetime.now(datetime.timezone.utc)

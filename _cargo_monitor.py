@@ -8,11 +8,11 @@ from config import config
 import fleetcarriercargo
 
 # How often request carrier update amoung many other events, except docking.
-_UPDATE_PERIOD_SECONDS_DUE_GAMEPLAY = 7200
+_UPDATE_PERIOD_SECONDS_DURING_GAMEPLAY = 7200
 
 
 @dataclass
-class JournalContext:
+class _JournalContext:
     """Gathers all journal callback's parameters in one place."""
 
     cmdr: str
@@ -33,7 +33,9 @@ class JournalContext:
         own: bool = False
         if self.station:
 
-            def callback(call_sign: str | None, cargo: dict[str, int]) -> bool:
+            def callback(
+                call_sign: str | None, cargo: fleetcarriercargo.CargoTally
+            ) -> bool:
                 nonlocal own
                 if call_sign == self.station or call_sign == self.state["StationName"]:
                     own = True
@@ -46,7 +48,7 @@ class JournalContext:
 class JournalHandler(Protocol):
     """Callable to process JournalContext."""
 
-    def __call__(self, ctx: JournalContext) -> None: ...
+    def __call__(self, ctx: _JournalContext) -> None: ...
 
 
 class PersistentCmdrState:
@@ -87,7 +89,7 @@ class CargoMonitor:
     _updates_lock = threading.Lock()
 
     _last_known_cmdr: str = ""
-    _delayed_update_data: list[JournalContext] = []
+    _delayed_update_data: list[_JournalContext] = []
     _last_known_cmdr_state: PersistentCmdrState = PersistentCmdrState()
 
     @staticmethod
@@ -181,7 +183,7 @@ class CargoMonitor:
                 # TODO: we may want some smart tracking, like player does missions somewhere - it is safe to update FC.
                 if (
                     fleetcarriercargo.FleetCarrierCargo.is_sync_stale(
-                        _UPDATE_PERIOD_SECONDS_DUE_GAMEPLAY
+                        _UPDATE_PERIOD_SECONDS_DURING_GAMEPLAY
                     )
                     and not CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer
                 ):
@@ -189,7 +191,7 @@ class CargoMonitor:
                     fleetcarriercargo.FleetCarrierCargo.update_from_server()
                 return
 
-            ctx: JournalContext = JournalContext(
+            ctx: _JournalContext = _JournalContext(
                 cmdr=cmdr,
                 is_beta=is_beta,
                 system=system,
@@ -207,7 +209,7 @@ class CargoMonitor:
     # https://github.com/EDCD/EDMarketConnector/blob/main/PLUGINS.md
 
     @staticmethod
-    def handle_docked(ctx: JournalContext) -> None:
+    def handle_docked(ctx: _JournalContext) -> None:
         old = CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer
         CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer = (
             ctx.entry.get("StationType") == "FleetCarrier" and ctx.is_own_carrier()
@@ -216,7 +218,7 @@ class CargoMonitor:
             CargoMonitor._last_known_cmdr_state.save()
 
     @staticmethod
-    def handle_undocked(ctx: JournalContext) -> None:
+    def handle_undocked(ctx: _JournalContext) -> None:
         # Respect SSD ...
         old = CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer
         CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer = False
@@ -224,7 +226,7 @@ class CargoMonitor:
             CargoMonitor._last_known_cmdr_state.save()
 
     @staticmethod
-    def handle_market_buy(ctx: JournalContext) -> None:
+    def handle_market_buy(ctx: _JournalContext) -> None:
         if not CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer:
             return
 
@@ -238,7 +240,7 @@ class CargoMonitor:
         fleetcarriercargo.FleetCarrierCargo.inventory(process_buy)
 
     @staticmethod
-    def handle_market_sell(ctx: JournalContext) -> None:
+    def handle_market_sell(ctx: _JournalContext) -> None:
         if not CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer:
             return
 
@@ -252,7 +254,8 @@ class CargoMonitor:
         fleetcarriercargo.FleetCarrierCargo.inventory(process_sell)
 
     @staticmethod
-    def handle_cargo_transfer(ctx: JournalContext) -> None:
+    def handle_cargo_transfer(ctx: _JournalContext) -> None:
+        """This is handler of the transfer between ship and personal carrier."""
         if not CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer:
             logger.warning(
                 "Receieved event 'CargoTransfer' but didn't have mark that docked to own carrier."
@@ -284,5 +287,5 @@ CargoMonitor.EVENT_HANDLERS = {
     "Undocked": CargoMonitor.handle_undocked,
     "MarketBuy": CargoMonitor.handle_market_buy,
     "MarketSell": CargoMonitor.handle_market_sell,
-    "CargoTransfer": CargoMonitor.handle_cargo_transfer,
+    "CargoTransfer": CargoMonitor.handle_cargo_transfer,  # Personal carrier always by "CargoTransfer" design
 }
