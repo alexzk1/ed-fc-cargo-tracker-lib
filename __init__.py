@@ -1,7 +1,13 @@
 from .fleetcarriercargo import (
     FleetCarrierCargo,
+)
+
+from .cargo_signals import (
     InventoryCallback,
     SignalCargoWasChanged,
+)
+
+from .cargo_tally import (
     CargoKey,
     CargoTally,
 )
