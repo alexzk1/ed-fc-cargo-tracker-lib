@@ -81,11 +81,15 @@ class CargoTally(dict[CargoKey, int]):
     @classmethod
     def from_json_dict(cls, d: dict[str, int]) -> "CargoTally":
         data = cls()
+        data.load_from_dict(d)
+        return data
+
+    def load_from_dict(self, d: dict[str, int]) -> None:
+        self.clear()
         for k, v in d.items():
             logger.debug(f"Decoding: {k}")
             key_dict = json.loads(k)
-            data[CargoKey(key_dict)] = v
-        return data
+            self[CargoKey(key_dict)] = v
 
     def to_json(self, **kwargs: Any) -> str:
         return json.dumps(self.to_json_dict(), **kwargs)

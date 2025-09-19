@@ -6,9 +6,11 @@
 import datetime
 import json
 import threading
+from typing import Any, Optional
 
 from cargo_tally import CargoKey, CargoTally
 from cargo_signals import InventoryCallback, SignalCargoWasChanged
+from watchable_cargo_tally import WatchableCargoTally
 
 from tkinter import Tk
 from companion import CAPIData, session, Session
@@ -28,14 +30,11 @@ class FleetCarrierCargo:
     _instance = None
     _instance_lock = threading.Lock()
     _updates_lock = threading.Lock()
-    _cargo_lock = threading.Lock()
-    _signals_lock = threading.Lock()
 
-    _cargo: CargoTally = CargoTally()
+    # Lock inside _cargo should be used to access those 3 fields.
+    _cargo: WatchableCargoTally = WatchableCargoTally()
     _last_sync: str | None = None
     _call_sign: str | None = None
-    _handlers: list[SignalCargoWasChanged] = []
-    _gui_root: Tk | None = None
 
     @staticmethod
     def is_sync_stale(max_age_seconds: int = 3600) -> bool:
@@ -46,8 +45,13 @@ class FleetCarrierCargo:
         :return: True if the last synchronization time is older than max_age_seconds.
         """
 
-        with FleetCarrierCargo._cargo_lock:
+        last_sync_str: Optional[str] = None
+
+        def locker(cargo: Any):
+            nonlocal last_sync_str
             last_sync_str = FleetCarrierCargo._last_sync
+
+        FleetCarrierCargo._cargo.inventory(locker)
         try:
             if last_sync_str is None or last_sync_str == "":
                 return True
@@ -64,8 +68,7 @@ class FleetCarrierCargo:
         Installs your handler of the "cargo changed" event.
         Note, you cannot un-install it.
         """
-        with FleetCarrierCargo._signals_lock:
-            FleetCarrierCargo._handlers.append(handler)
+        FleetCarrierCargo._cargo.add_on_cargo_change_handler(handler=handler)
 
     @staticmethod
     def set_gui_root_once(root: Tk):
@@ -73,27 +76,7 @@ class FleetCarrierCargo:
         Internal method.
         Do not use it directly.
         """
-        with FleetCarrierCargo._signals_lock:
-            if FleetCarrierCargo._gui_root is None:
-                FleetCarrierCargo._gui_root = root
-            elif FleetCarrierCargo._gui_root != root:
-                raise RuntimeError("Attempt to overwrite GUI root")
-
-    @staticmethod
-    def _signal_cargo_was_changed():
-        """
-        Internal method, used to call all handlers out of main-gui thread.
-        """
-        with FleetCarrierCargo._signals_lock:
-            if FleetCarrierCargo._gui_root:
-                logger.debug("Calling on_cargo_changed handlers.")
-                for handler in FleetCarrierCargo._handlers:
-                    try:
-                        FleetCarrierCargo._gui_root.after(0, handler)
-                    except Exception as e:
-                        logger.error(f"Handler raised exception: {e}", exc_info=True)
-            else:
-                logger.warning("Called _signal_cargo_was_changed() without GUI root.")
+        FleetCarrierCargo._cargo.set_gui_root_once(root=root)
 
     @staticmethod
     def inventory(callback: InventoryCallback) -> None:
@@ -106,33 +89,13 @@ class FleetCarrierCargo:
 
         :param callback: A function that receives (call_sign, cargo) and returns a bool.
         """
-        with FleetCarrierCargo._cargo_lock:
-            logger.debug("Accessing inventory")
-            old_hash = hash(frozenset(FleetCarrierCargo._cargo.items()))
-            res = callback(FleetCarrierCargo._call_sign, FleetCarrierCargo._cargo)
-            invalid_keys = [
-                k
-                for k in FleetCarrierCargo._cargo
-                if not isinstance(k, CargoKey)  # pyright: ignore[reportUnnecessaryIsInstance]
-            ]
-            if invalid_keys:
-                logger.warning(
-                    "FleetCarrierCargo: removed invalid keys: %s",
-                    ", ".join(repr(k) for k in invalid_keys),
-                )
-            FleetCarrierCargo._cargo = CargoTally(
-                {
-                    k: v
-                    for k, v in FleetCarrierCargo._cargo.items()
-                    if isinstance(k, CargoKey) and v > 0  # pyright: ignore[reportUnnecessaryIsInstance]
-                }
-            )
-            new_hash = hash(frozenset(FleetCarrierCargo._cargo.items()))
-            if res:
+
+        def cargoAccess(cargo: CargoTally):
+            if callback(FleetCarrierCargo._call_sign, cargo):
                 FleetCarrierCargo._update_access_time_not_locked()
-                FleetCarrierCargo._save_not_locked()
-            if old_hash != new_hash:
-                FleetCarrierCargo._signal_cargo_was_changed()
+                FleetCarrierCargo._save_not_locked(cargo=cargo)
+
+        FleetCarrierCargo._cargo.inventory(cargoAccess)
 
     @staticmethod
     def load():
@@ -149,13 +112,15 @@ class FleetCarrierCargo:
         except json.JSONDecodeError:
             logger.debug("Failed to parse local json data.")
             return False
-        with FleetCarrierCargo._cargo_lock:
-            logger.debug("Cargo is locked for loading...")
-            FleetCarrierCargo._cargo = CargoTally.from_json_dict(data.get("cargo", {}))
+
+        def load_all(cargo: CargoTally):
+            logger.debug("FleetCarrier's cargo is locked for loading...")
+            cargo.load_from_dict(data.get("cargo", {}))
             FleetCarrierCargo._last_sync = data.get("lastSync", None)
             FleetCarrierCargo._call_sign = data.get("callSign", None)
-            logger.debug("Cargo is loaded locally...")
-            FleetCarrierCargo._signal_cargo_was_changed()
+            logger.debug("FleetCarrier's cargo is loaded locally...")
+
+        FleetCarrierCargo._cargo.inventory(load_all)
         return True
 
     @staticmethod
@@ -163,19 +128,21 @@ class FleetCarrierCargo:
         """
         Saves this object to EDMC settings.
         """
-        logger.debug("Saving carrier data...")
-        with FleetCarrierCargo._cargo_lock:
-            FleetCarrierCargo._save_not_locked()
+
+        def saver(cargo: CargoTally):
+            FleetCarrierCargo._save_not_locked(cargo=cargo)
+
+        FleetCarrierCargo._cargo.inventory(saver)
 
     @staticmethod
-    def _save_not_locked():
+    def _save_not_locked(cargo: CargoTally):
         """
         Saves this object to EDMC settings without lock.
         Do not call it directly.
         """
         logger.debug("Saving carrier data...")
         data: dict[str, dict[str, int] | str | None] = {
-            "cargo": FleetCarrierCargo._cargo.to_json_dict(),
+            "cargo": cargo.to_json_dict(),
             "lastSync": FleetCarrierCargo._last_sync,
             "callSign": FleetCarrierCargo._call_sign,
         }
@@ -217,22 +184,21 @@ class FleetCarrierCargo:
 
         """
         logger.debug(f"Parsing CAPI data...{json.dumps(data, indent=2)}")
-        with FleetCarrierCargo._cargo_lock:
+
+        def loader(cargo: CargoTally):
             FleetCarrierCargo._call_sign = data["name"]["callsign"]
             if not FleetCarrierCargo._call_sign:
                 logger.warning("It was no callsign in CAPI response. Nothing parsed.")
                 return
             logger.debug("Parsing CAPI cargo-data...")
-            FleetCarrierCargo._cargo = CargoTally()
+            cargo.clear()
             for item in data["cargo"]:
                 key = CargoKey(item)
-                if key in FleetCarrierCargo._cargo:
-                    FleetCarrierCargo._cargo[key] += item["qty"]
-                else:
-                    FleetCarrierCargo._cargo[key] = item["qty"]
+                cargo[key] = cargo.get(key, 0) + item["qty"]
             FleetCarrierCargo._update_access_time_not_locked()
-            FleetCarrierCargo._save_not_locked()
-        FleetCarrierCargo._signal_cargo_was_changed()
+            FleetCarrierCargo._save_not_locked(cargo=cargo)
+
+        FleetCarrierCargo._cargo.inventory(loader)
 
     @staticmethod
     def is_updating_from_server():

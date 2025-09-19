@@ -5,6 +5,7 @@ from .fleetcarriercargo import (
 from .cargo_signals import (
     InventoryCallback,
     SignalCargoWasChanged,
+    InventoryOnlyCallback,
 )
 
 from .cargo_tally import (
@@ -23,4 +24,5 @@ __all__ = [
     "MarketCatalogue",
     "MarketName",
     "MarketNameWithCommodity",
+    "InventoryOnlyCallback",
 ]
