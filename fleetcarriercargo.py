@@ -192,11 +192,13 @@ class FleetCarrierCargo:
                 logger.warning("It was no callsign in CAPI response. Nothing parsed.")
                 return
             logger.debug("Parsing CAPI cargo-data...")
+            old_hash = hash(frozenset(cargo.items()))
             cargo.clear()
             for item in data["cargo"]:
                 key = CargoKey(item)
                 cargo[key] = cargo.get(key, 0) + item["qty"]
-            FleetCarrierCargo._update_access_time_not_locked()
+            if old_hash != hash(frozenset(cargo.items())):
+                FleetCarrierCargo._update_access_time_not_locked()
             FleetCarrierCargo._save_not_locked(cargo=cargo)
 
         FleetCarrierCargo._cargo.inventory(loader)
