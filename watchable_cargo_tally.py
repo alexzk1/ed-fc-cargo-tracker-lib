@@ -47,17 +47,16 @@ class WatchableCargoTally:
             logger.debug("Accessing watchable inventory")
             old_hash = hash(frozenset(self._cargo.items()))
             callback(self._cargo)
-
             keys_to_remove: list[Any] = []
             for k, v in self._cargo.items():
                 if not isinstance(k, CargoKey) or not isinstance(v, int) or v <= 0:  # pyright: ignore[reportUnnecessaryIsInstance]
                     keys_to_remove.append(k)
             for k in keys_to_remove:
                 del self._cargo[k]
-
             new_hash = hash(frozenset(self._cargo.items()))
-            if old_hash != new_hash:
-                self.signal_cargo_was_changed()
+
+        if old_hash != new_hash:
+            self.signal_cargo_was_changed()
 
     def signal_cargo_was_changed(self):
         """
@@ -68,8 +67,9 @@ class WatchableCargoTally:
                 logger.debug("Calling on_cargo_changed handlers.")
                 for handler in self._handlers:
                     try:
-                        self._gui_root.after(0, handler)
+                        self._gui_root.after_idle(handler)
                     except Exception as e:
                         logger.error(f"Handler raised exception: {e}", exc_info=True)
+                logger.debug("Calling on_cargo_changed handlers FINISHED.")
             else:
                 logger.warning("Called _signal_cargo_was_changed() without GUI root.")

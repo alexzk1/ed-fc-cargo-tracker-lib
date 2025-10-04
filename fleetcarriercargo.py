@@ -183,7 +183,8 @@ class FleetCarrierCargo:
         },
 
         """
-        logger.debug(f"Parsing CAPI data...{json.dumps(data, indent=2)}")
+        # logger.debug(f"Parsing CAPI data...{json.dumps(data, indent=2)}")
+        logger.debug("_load_from_capi called...")
 
         def loader(cargo: CargoTally):
             FleetCarrierCargo._call_sign = data["name"]["callsign"]
@@ -282,5 +283,5 @@ class FleetCarrierCargo:
         """
         Tries to load data, if failed or it was outdated than query server.
         """
-        if not FleetCarrierCargo.load() or FleetCarrierCargo.is_sync_stale(12 * 3600):
+        if not FleetCarrierCargo.load() or FleetCarrierCargo.is_sync_stale(5 * 3600):
             FleetCarrierCargo.update_from_server()
