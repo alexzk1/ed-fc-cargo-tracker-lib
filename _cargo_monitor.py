@@ -261,6 +261,7 @@ class CargoMonitor:
     @staticmethod
     def handle_cargo_transfer(ctx: _JournalContext) -> None:
         """This is handler of the transfer between ship and personal carrier."""
+        logger.debug("Cargo transfer handler...")
         if not CargoMonitor._last_known_cmdr_state.is_docked_on_own_carrer:
             logger.warning(
                 "Receieved event 'CargoTransfer' but didn't have mark that docked to own carrier."
@@ -271,13 +272,16 @@ class CargoMonitor:
         def process_transfers(
             call_sign: str | None, cargo: fleetcarriercargo.CargoTally
         ):
+            logger.debug("Processing cargo transfer handler:")
             nonlocal ctx
             for t in ctx.entry["Transfers"]:
                 key = fleetcarriercargo.CargoKey(t["Type"])
                 item = cargo.get(key, 0)
                 if t["Direction"] == "toship":
+                    logger.debug(f"\tMoving to ship: {key} / {t['Count']}")
                     item -= t["Count"]
                 if t["Direction"] == "tocarrier":
+                    logger.debug(f"\tMoving to carrier: {key} / {t['Count']}")
                     item += t["Count"]
                 cargo[key] = item
             return True

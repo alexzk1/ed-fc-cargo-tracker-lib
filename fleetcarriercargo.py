@@ -199,7 +199,9 @@ class FleetCarrierCargo:
                 cargo[key] = cargo.get(key, 0) + item["qty"]
             if old_hash != hash(frozenset(cargo.items())):
                 FleetCarrierCargo._update_access_time_not_locked()
-            FleetCarrierCargo._save_not_locked(cargo=cargo)
+                FleetCarrierCargo._save_not_locked(cargo=cargo)
+            else:
+                logger.debug("Carrier data was not changed...")
 
         FleetCarrierCargo._cargo.inventory(loader)
 
