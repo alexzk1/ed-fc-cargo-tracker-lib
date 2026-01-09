@@ -33,7 +33,7 @@ class FleetCarrierCargo:
 
     # Lock inside _cargo should be used to access those 3 fields.
     _cargo: WatchableCargoTally = WatchableCargoTally()
-    _last_sync: str | None = None
+    _last_inventory_update: str | None = None
     _call_sign: str | None = None
 
     @staticmethod
@@ -45,18 +45,26 @@ class FleetCarrierCargo:
         :return: True if the last synchronization time is older than max_age_seconds.
         """
 
-        last_sync_str: Optional[str] = None
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        time_since_mod: float = 0
+        last_inventory_update_str: Optional[str] = None
 
         def locker(cargo: Any):
-            nonlocal last_sync_str
-            last_sync_str = FleetCarrierCargo._last_sync
+            nonlocal last_inventory_update_str
+            nonlocal time_since_mod
+            nonlocal now
+
+            last_inventory_update_str = FleetCarrierCargo._last_inventory_update
 
         FleetCarrierCargo._cargo.inventory(locker)
         try:
-            if last_sync_str is None or last_sync_str == "":
+            if last_inventory_update_str is None or last_inventory_update_str == "":
                 return True
-            last_sync_dt = datetime.datetime.fromisoformat(last_sync_str)
-            now = datetime.datetime.now(datetime.timezone.utc)
+            last_sync_dt = datetime.datetime.fromisoformat(last_inventory_update_str)
+            if last_sync_dt.tzinfo is None:
+                last_sync_dt = last_sync_dt.replace(tzinfo=datetime.timezone.utc)
+
             delta = now - last_sync_dt
             return delta.total_seconds() > max_age_seconds
         except Exception:
@@ -116,7 +124,7 @@ class FleetCarrierCargo:
         def load_all(cargo: CargoTally):
             logger.debug("FleetCarrier's cargo is locked for loading...")
             cargo.load_from_dict(data.get("cargo", {}))
-            FleetCarrierCargo._last_sync = data.get("lastSync", None)
+            FleetCarrierCargo._last_inventory_update = data.get("lastSync", None)
             FleetCarrierCargo._call_sign = data.get("callSign", None)
             logger.debug("FleetCarrier's cargo is loaded locally...")
 
@@ -143,7 +151,7 @@ class FleetCarrierCargo:
         logger.debug("Saving carrier data...")
         data: dict[str, dict[str, int] | str | None] = {
             "cargo": cargo.to_json_dict(),
-            "lastSync": FleetCarrierCargo._last_sync,
+            "lastSync": FleetCarrierCargo._last_inventory_update,
             "callSign": FleetCarrierCargo._call_sign,
         }
         config.set(
@@ -157,7 +165,7 @@ class FleetCarrierCargo:
         Do not use directly from outside.
         Updates last modified time stamp to now().
         """
-        FleetCarrierCargo._last_sync = (
+        FleetCarrierCargo._last_inventory_update = (
             datetime.datetime.now(datetime.timezone.utc)
             .replace(microsecond=0)
             .isoformat()
@@ -221,19 +229,24 @@ class FleetCarrierCargo:
             data (CAPIData): response from the servers as EDMC gives it.
         """
 
-        def updater():
-            with FleetCarrierCargo._updates_lock:
-                logger.debug("Syncing to CAPI, got _updates_lock...")
-                FleetCarrierCargo._load_from_capi(data)
+        if FleetCarrierCargo.is_sync_stale(600):
 
-        logger.debug("Syncing data to CAPI...")
-        threading.Thread(target=updater, daemon=True).start()
+            def updater():
+                with FleetCarrierCargo._updates_lock:
+                    logger.debug("Syncing to CAPI, got _updates_lock...")
+                    FleetCarrierCargo._load_from_capi(data)
+
+            logger.debug("Syncing data to CAPI...")
+            threading.Thread(target=updater, daemon=True).start()
+        else:
+            logger.debug("Sync to CAPI ignored, because it was recent modification.")
 
     @staticmethod
     def update_from_server():
         """
         Tries to trigger cargo update from Frontier's servers.
         It may do nothing if something else already triggered (other plugin, for example).
+        Note, outside plugins must not call this too often as it will overwrite current track by server data which could be lagging.
         """
 
         def updater():
@@ -287,5 +300,5 @@ class FleetCarrierCargo:
         """
         Tries to load data, if failed or it was outdated than query server.
         """
-        if not FleetCarrierCargo.load() or FleetCarrierCargo.is_sync_stale(5 * 3600):
+        if not FleetCarrierCargo.load():
             FleetCarrierCargo.update_from_server()
